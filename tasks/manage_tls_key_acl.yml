@@ -1,0 +1,23 @@
+- name: Process path segments for TLS certificate private key
+  set_fact:
+    groupware_server_tls_key_path: "{{ groupware_server_tls_key_path|default('') }}/{{ groupware_server_tls_key_path_segment }}"
+
+- name: Retrieve information for {{ groupware_server_tls_key_path }}
+  stat:
+    path: "{{ groupware_server_tls_key_path }}"
+  become: true
+  register: groupware_server_tls_key_path_stat_result
+
+- name: Manage ACL entries for {{ groupware_server_tls_key_path }}
+  acl:
+    path: "{{ groupware_server_tls_key_path }}"
+    entity: radicale
+    etype: user
+    permissions: "{% if groupware_server_tls_key_path_stat_result.stat.isdir %}\
+      x\
+      {% else %}\
+      r\
+      {% endif %}"
+    state: present
+  become: true
+  when: not groupware_server_tls_key_path_stat_result.stat.xoth

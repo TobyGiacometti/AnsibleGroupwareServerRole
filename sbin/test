@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+set -o errtrace
+set -o pipefail
+
+#---
+# @stdout Help
+print_help() {
+	cat <<-EOF
+		Run tests.
+
+		Usage:
+		  $script_name [<molecule-arg>...]
+		  $script_name -h
+
+		Operands:
+		  <molecule-arg>  Argument that is passed to Molecule. Check the Molecule
+		                  documentation for more details. If no arguments are provided,
+		                  a complete test sequence is executed.
+
+		Options:
+		  -h  Print help.
+	EOF
+}
+
+if [[ $# -eq 0 ]]; then
+	# shellcheck disable=SC2121
+	set test --all
+fi
+script_name=$(basename "$0")
+project_dir=$(cd "$(dirname "$0")/.." &>/dev/null && pwd) || exit
+
+while getopts :h option; do
+	case $option in
+		h)
+			print_help
+			exit
+			;;
+		\?)
+			echo "Option is unknown: -$OPTARG" >&2
+			exit 1
+			;;
+	esac
+done
+
+if [[ $1 == -- ]]; then
+	shift
+fi
+
+cd "$project_dir" || exit
+
+sudo -H molecule "$@"
