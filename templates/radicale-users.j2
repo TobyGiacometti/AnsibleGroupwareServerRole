@@ -1,0 +1,3 @@
+{% for groupware_server_account in groupware_server_accounts %}
+{{ groupware_server_account.email }}:{{ groupware_server_account.password|password_hash('bcrypt', ('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'|shuffle(seed=ansible_machine_id+groupware_server_account.email)|join)[:21] + ('Oeu'|shuffle(seed=ansible_machine_id+groupware_server_account.email)|join)[1]) }}
+{% endfor %}

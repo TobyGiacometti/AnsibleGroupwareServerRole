@@ -1,0 +1,20 @@
+- name: Reload service dovecot
+  listen: groupware_server_dovecot_reload_handler
+  service:
+    name: dovecot
+    state: reloaded
+  become: true
+
+- name: Reload service postfix
+  listen: groupware_server_postfix_reload_handler
+  service:
+    name: postfix
+    state: reloaded
+  become: true
+
+- name: Restart service radicale
+  listen: groupware_server_radicale_restart_handler
+  service:
+    name: radicale
+    state: restarted
+  become: true

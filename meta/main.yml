@@ -1,0 +1,26 @@
+galaxy_info:
+  role_name: groupware_server
+  author: Toby Giacometti
+  description: Manage a mail, contacts and calendar server.
+  license: Apache-2.0
+  min_ansible_version: "2.10"
+  platforms:
+    - name: Debian
+      versions:
+        - buster
+  galaxy_tags:
+    - cloud
+    - groupware
+    - mail
+    - contacts
+    - calendar
+    - smtp
+    - imap
+    - pop3
+    - caldav
+    - carddav
+    - postfix
+    - dovecot
+    - radicale
+
+dependencies: []

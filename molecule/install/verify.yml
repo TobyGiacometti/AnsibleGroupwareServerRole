@@ -1,0 +1,112 @@
+- name: Verify all hosts
+  hosts: all
+  tasks:
+    - name: Retrieve state of packages
+      package_facts: null
+
+    - name: Retrieve configuration state of mail server
+      command: cat /etc/postfix/master.cf
+      register: postfix_config_cat_result
+
+    - name: Retrieve state of cron jobs
+      command: crontab -l
+      register: crontab_result
+
+    - name: Retrieve state of mailbox directories
+      find:
+        file_type: directory
+        paths:
+          - /var/vmail/vmail1/domain.test
+      register: mailbox_dir_find_result
+
+    - name: Retrieve state of internal mail aliases
+      command: cat /etc/postfix/aliases
+      register: aliases_cat_result
+
+    - name: Retrieve state of mail server TLS certificate link
+      stat:
+        path: /etc/ssl/certs/iRedMail.crt
+      register: tls_cert_link_stat_result
+
+    - name: Retrieve state of mail server TLS certificate private key link
+      stat:
+        path: /etc/ssl/private/iRedMail.key
+      register: tls_key_link_stat_result
+
+    - name: Retrieve state of mail server database
+      command: mysqldump --databases vmail iredapd
+      register: mysqldump_result
+
+    - name: Retrive state of Sieve scripts
+      stat:
+        path: "{{ sieve_script_path }}"
+      register: sieve_script_stat_results
+      with_items:
+        - /var/vmail/vmail1/domain.test/user1/sieve/dovecot.sieve
+        - /var/vmail/vmail1/domain.test/user2/sieve/dovecot.sieve
+      loop_control:
+        loop_var: sieve_script_path
+
+    - name: Retrieve state of TLS certificate private key directory ACL entries
+      acl:
+        path: /etc/ssl/private
+      register: tls_key_dir_acl_result
+
+    - name: Retrieve state of TLS certificate private key ACL entries
+      acl:
+        path: /etc/ssl/private/ssl-cert-snakeoil.key
+      register: tls_key_acl_result
+
+    - name: Retrieve configuration state of CalDAV/CardDAV server
+      stat:
+        path: /etc/radicale/config
+      register: dav_server_config_stat_result
+
+    - name: Retrieve configuration state of CalDAV/CardDAV server logging
+      stat:
+        path: /etc/radicale/logging
+      register: dav_server_logging_config_stat_result
+
+    - name: Retrieve state of CalDAV/CardDAV users
+      stat:
+        path: /etc/radicale/users
+      register: dav_server_users_stat_result
+
+    - name: Retrieve state of CalDAV/CardDAV users
+      command: cat /etc/radicale/users
+      register: dav_server_users_cat_result
+
+    - name: Run tests
+      assert:
+        that:
+          - "'logwatch' not in ansible_facts.packages"
+          - postfix_config_cat_result.stdout is search('465     inet')
+          - mysqldump_result is search("INSERT INTO `greylisting` VALUES \(2,'@.',0,'@.',0,'',0\);")
+          - crontab_result is not search('/var/vmail/backup/backup_mysql.sh')
+          - mailbox_dir_find_result.files|length == 2
+          - aliases_cat_result.stdout is not search('root:')
+          - crontab_result is search('groupware_server_weekly_reload_mail')
+          - tls_cert_link_stat_result.stat.islnk
+          - tls_key_link_stat_result.stat.islnk
+          - mysqldump_result is not search('INSERT INTO `domain_admins`')
+          - mysqldump_result is not search('INSERT INTO `used_quota`')
+          - mysqldump_result is search("INSERT INTO `domain` VALUES \('domain.test',NULL,NULL,0,0,0,0,0,'dovecot',0,'default_user_quota:0;','1970-01-01 01:01:01','1970-01-01 01:01:01','9999-12-31 00:00:00',1\);")
+          - mysqldump_result is search("INSERT INTO `forwardings` VALUES \(2,'user1@domain.test','user1@domain.test','domain.test','domain.test',0,0,1,0,1\),\(3,'postmaster@domain.test','user1@domain.test','domain.test','domain.test',0,0,0,1,1\),\(4,'abuse@domain.test','user1@domain.test','domain.test','domain.test',0,0,0,1,1\),\(5,'user@alias.test','user1@domain.test','alias.test','domain.test',0,0,0,1,1\),\(6,'user2@domain.test','user2@domain.test','domain.test','domain.test',0,0,1,0,1\);")
+          - mysqldump_result is search("INSERT INTO `mailbox` VALUES \('user1@domain.test','{CRYPT}\$2b\$[^']+','user1','','maildir','Maildir','/var/vmail','vmail1','domain.test/user1',0,'domain.test','','','normal','',0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,NULL,'1970-01-01 01:01:01',0,'',NULL,NULL,NULL,NULL,NULL,NULL,'1970-01-01 01:01:01','1970-01-01 01:01:01','1970-01-01 01:01:01','9999-12-31 00:00:00',1\),\('user2@domain.test','{CRYPT}\$2b\$[^']+','user2','','maildir','Maildir','/var/vmail','vmail1','domain.test/user2',0,'domain.test','','','normal','',0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,NULL,'1970-01-01 01:01:01',0,'',NULL,NULL,NULL,NULL,NULL,NULL,'1970-01-01 01:01:01','1970-01-01 01:01:01','1970-01-01 01:01:01','9999-12-31 00:00:00',1\);")
+          - mailbox_dir_find_result.files[0].mode == '0700'
+          - mailbox_dir_find_result.files[0].pw_name == 'vmail'
+          - mailbox_dir_find_result.files[0].gr_name == 'vmail'
+          - sieve_script_stat_results.results[0].stat.checksum == '4e1243bd22c66e76c2ba9eddc1f91394e57f9f83'
+          - sieve_script_stat_results.results[0].stat.mode == '0600'
+          - sieve_script_stat_results.results[0].stat.pw_name == 'vmail'
+          - sieve_script_stat_results.results[0].stat.gr_name == 'vmail'
+          - sieve_script_stat_results.results[1].stat.checksum == 'adc83b19e793491b1c6ea0fd8b46cd9f32e592fc'
+          - crontab_result is search('groupware_server_weekly_reload_dav')
+          - tls_key_dir_acl_result.acl|join(',') == 'user::rwx,user:radicale:--x,group::--x,mask::--x,other::---'
+          - tls_key_acl_result.acl|join(',') == 'user::rw-,user:radicale:r--,group::r--,mask::r--,other::---'
+          - dav_server_config_stat_result.stat.checksum == 'f84d883ff29edd7aafa23f7811309e98584aa70c'
+          - dav_server_logging_config_stat_result.stat.checksum == '920f539c0bf727c29dc4a0657b75bd0cf081693f'
+          - dav_server_users_stat_result.stat.mode == '0640'
+          - dav_server_users_stat_result.stat.uid == 0
+          - dav_server_users_stat_result.stat.gr_name == 'radicale'
+          - dav_server_users_cat_result.stdout is search('user2@domain.test:\$2b\$')

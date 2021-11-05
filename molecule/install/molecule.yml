@@ -1,0 +1,10 @@
+driver:
+  name: docker
+platforms:
+  - name: groupware.domain.test
+    image: geerlingguy/docker-debian10-ansible:latest
+    command: /sbin/init
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    privileged: true
+    pre_build_image: true

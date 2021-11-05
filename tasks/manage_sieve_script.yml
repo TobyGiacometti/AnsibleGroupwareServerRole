@@ -1,0 +1,20 @@
+- name: Create Sieve directory for {{ groupware_server_account.email }}
+  file:
+    state: directory
+    path: /var/vmail/vmail1/{{ groupware_server_email_segments[1] }}/{{ groupware_server_email_segments[0] }}/sieve
+    owner: vmail
+    group: vmail
+    mode: 0700
+  become: true
+  register: groupware_server_sieve_dir_result
+  vars:
+    groupware_server_email_segments: "{{ groupware_server_account.email.split('@') }}"
+
+- name: Create Sieve script for {{ groupware_server_account.email }}
+  template:
+    src: dovecot.sieve.j2
+    dest: "{{ groupware_server_sieve_dir_result.path }}/dovecot.sieve"
+    owner: vmail
+    group: vmail
+    mode: 0600
+  become: true

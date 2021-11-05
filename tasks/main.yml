@@ -1,0 +1,5 @@
+- name: Include mail server management tasks
+  include_tasks: manage_mail_server.yml
+
+- name: Include CalDAV/CardDAV server management tasks
+  include_tasks: manage_dav_server.yml

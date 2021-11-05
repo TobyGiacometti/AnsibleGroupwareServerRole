@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# shellcheck source=/dev/null
+test -f /etc/os-release && . "$_"
+if [[ $ID != "ubuntu" || $VERSION_ID != "18.04" ]]; then
+	echo "Only Ubuntu 18.04 LTS (Bionic Beaver) is supported." >&2
+	exit 1
+fi
+
+set -o errtrace
+set -o pipefail
+
+trap '[[ $? -ne 0 && -s $output_log ]] && cat "$output_log" >&3' EXIT
+
+tmp_dir=$(mktemp --directory) || exit
+output_log=$tmp_dir/output.log
+
+echo "Development environment is being provisioned..."
+
+# From now on, we will redirect any output to a logfile so that we can keep the
+# output clean during provisioning.
+exec 3>&2 >>"$output_log" 2>&1
+
+cd "$tmp_dir" || exit
+
+sudo apt-get update || exit
+sudo apt-get install --assume-yes python3-pip python3-setuptools || exit
+if ! type docker &>/dev/null; then
+	sudo apt-get install --assume-yes docker.io || exit
+fi
+
+sudo pip3 install ansible==2.10.4 yamllint==1.25.0 ansible-lint==4.3.7 \
+	molecule==3.2.0 molecule-docker==0.2.4 passlib==1.7.4 || exit
+
+wget --no-verbose https://github.com/mvdan/sh/releases/download/v3.0.1/shfmt_v3.0.1_linux_amd64 || exit
+sudo install shfmt* /usr/local/bin/shfmt || exit
+
+wget --no-verbose --output-document=- https://github.com/koalaman/shellcheck/releases/download/v0.7.0/shellcheck-v0.7.0.linux.x86_64.tar.xz \
+	| tar --extract --xz
+sudo install shellcheck*/shellcheck /usr/local/bin
+
+# Since we are running a privileged Docker container for testing, the host's
+# AppArmor profiles are applied.
+if type apparmor_status &>/dev/null && sudo apparmor_status | grep --quiet mysqld; then
+	sudo apparmor_parser --remove /etc/apparmor.d/usr.sbin.mysqld
+fi

@@ -1,0 +1,179 @@
+- name: Retrieve email addresses
+  set_fact:
+    groupware_server_emails: "{{ groupware_server_accounts|map(attribute='email')|list }}"
+  run_once: true
+
+- name: Ensure that email addresses are unique
+  fail:
+    msg: Email addresses must be unique
+  run_once: true
+  when: groupware_server_emails|count != groupware_server_emails|unique|count
+
+- name: Check whether mail server is installed
+  stat:
+    path: /opt/iredapd
+  become: true
+  register: iredapd_dir_stat_result
+
+- name: Run mail server setup
+  block:
+    - name: Install packages for mail server installer
+      apt:
+        name: unzip
+        update_cache: true
+      become: true
+
+    - name: Create temporary directory for mail server installer download
+      tempfile:
+        state: directory
+      become: true
+      register: iredmail_download_tempfile_result
+
+    - name: Download mail server installer
+      unarchive:
+        src: https://github.com/iredmail/iRedMail/archive/{{ iredmail_version }}.zip
+        remote_src: true
+        dest: "{{ iredmail_download_tempfile_result.path }}"
+      become: true
+
+    - name: Gather package facts
+      package_facts: null
+      become: true
+
+    - name: Generate mail server installer configuration
+      template:
+        src: iredmail-config.j2
+        dest: "{{ iredmail_download_tempfile_result.path }}/iRedMail-{{ iredmail_version }}/config"
+        mode: 0600
+      become: true
+
+    - name: Run mail server installer
+      command:
+        cmd: bash iRedMail.sh
+        chdir: "{{ iredmail_download_tempfile_result.path }}/iRedMail-{{ iredmail_version }}"
+      environment:
+        AUTO_USE_EXISTING_CONFIG_FILE: y
+        AUTO_INSTALL_WITHOUT_CONFIRM: y
+        AUTO_CLEANUP_REMOVE_SENDMAIL: y
+        AUTO_CLEANUP_REPLACE_FIREWALL_RULES: n
+        AUTO_CLEANUP_RESTART_FIREWALL: n
+        AUTO_CLEANUP_REPLACE_MYSQL_CONFIG: y
+        status_check_new_iredmail: DONE
+      become: true
+
+    # iRedMail installs logwatch, which some users might not desire. To preserve
+    # custom iRedMail configs, the package is not purged.
+    - name: Remove logwatch
+      apt:
+        name:
+          - logwatch
+        state: absent
+        autoremove: true
+      become: true
+      when: "'logwatch' not in ansible_facts.packages"
+
+    # Port 465 has been undeprecated and should be used for implicit SMTP TLS.
+    - name: Enable implicit SMTP TLS
+      blockinfile:
+        block: "{{ lookup('file', 'master.cf.465') }}"
+        path: /etc/postfix/master.cf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK: IMPLICIT SMTP TLS"
+      become: true
+
+    # Greylisting can lead to a significant delay when receiving emails.
+    - name: Disable greylisting
+      command: python3 /opt/iredapd/tools/greylisting_admin.py --disable --from @.
+      become: true
+
+    # Since databases are managed by the role, we don't need backups.
+    - name: Disable database backup
+      shell:
+        cmd: >
+          set -o pipefail &&
+          crontab -l |
+          grep --invert-match /var/vmail/backup/backup_mysql.sh |
+          crontab -
+        executable: /bin/bash
+      become: true
+
+    # iRedMail sets up an initial mailbox during setup. Since mailboxes are being
+    # managed by the role, we want to start fresh.
+    - name: Remove initial mailbox
+      file:
+        path: /var/vmail/vmail1/{{ groupware_server_accounts[0].email.split('@')[1] }}
+        state: absent
+      become: true
+
+    # iRedMail sets up mail aliases that forward all system mails to the initial
+    # mailbox. To keep things simple, this role offers no option to specify which
+    # mailbox should receive system mails. For this reason, we forward all system
+    # mails to the root account.
+    - name: Adjust internal mail aliases
+      lineinfile:
+        path: /etc/postfix/aliases
+        regexp: "^root:"
+        state: absent
+      become: true
+
+    - name: Rebuild internal mail aliases database
+      command: newaliases
+      become: true
+
+    # Requested by the iRedMail installer.
+    - name: Reboot the managed host
+      reboot: null
+      become: true
+      when: molecule_yml is not defined
+  when: not iredapd_dir_stat_result.stat.exists
+
+- name: Manage weekly reload cron job for mail server
+  cron:
+    job: /usr/bin/systemctl reload dovecot; /usr/bin/systemctl reload postfix
+    name: groupware_server_weekly_reload_mail
+    special_time: weekly
+    state: "{{ groupware_server_weekly_reload|ternary('present', 'absent') }}"
+  become: true
+
+- name: Create TLS certificate link for mail server
+  file:
+    path: /etc/ssl/certs/iRedMail.crt
+    src: "{{ groupware_server_tls_cert_file }}"
+    state: link
+    force: true
+  become: true
+  notify:
+    - groupware_server_dovecot_reload_handler
+    - groupware_server_postfix_reload_handler
+
+- name: Create TLS certificate private key link for mail server
+  file:
+    path: /etc/ssl/private/iRedMail.key
+    src: "{{ groupware_server_tls_key_file }}"
+    state: link
+    force: true
+  become: true
+  notify:
+    - groupware_server_dovecot_reload_handler
+    - groupware_server_postfix_reload_handler
+
+- name: Manage accounts checksum file
+  template:
+    src: groupware-accounts-cksum.j2
+    dest: /var/lib/misc/groupware-accounts-cksum
+    mode: 0600
+  become: true
+  register: groupware_server_accounts_cksum_file_result
+
+- name: Manage database  # noqa 503
+  command:
+    cmd: mysql vmail
+    stdin: "{{ lookup('template', 'vmail.sql.j2') }}"
+  become: true
+  when: groupware_server_accounts_cksum_file_result.changed
+
+- name: Include Sieve script management tasks
+  include_tasks: manage_sieve_script.yml
+  loop: "{{ groupware_server_accounts }}"
+  loop_control:
+    loop_var: groupware_server_account
+  no_log: true

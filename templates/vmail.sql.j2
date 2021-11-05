@@ -1,0 +1,19 @@
+START TRANSACTION;
+
+DELETE FROM domain;
+DELETE FROM domain_admins;
+DELETE FROM forwardings;
+DELETE FROM mailbox;
+DELETE FROM used_quota;
+
+{% for groupware_server_account in groupware_server_accounts %}
+{% set groupware_server_email_segments = groupware_server_account.email.split('@') %}
+INSERT INTO domain (domain, settings) VALUES ("{{ groupware_server_email_segments[1] }}", "default_user_quota:0;") ON DUPLICATE KEY UPDATE domain=domain;
+INSERT INTO forwardings (address, forwarding, domain, dest_domain, is_forwarding) VALUES ("{{ groupware_server_account.email }}", "{{ groupware_server_account.email }}", "{{ groupware_server_email_segments[1] }}", "{{ groupware_server_email_segments[1] }}", 1);
+{% for groupware_server_email_alias in groupware_server_account.email_aliases|default([]) %}
+INSERT INTO forwardings (address, forwarding, domain, dest_domain, is_alias) VALUES ("{{ groupware_server_email_alias }}", "{{ groupware_server_account.email }}", "{{ groupware_server_email_alias.split('@')[1] }}", "{{ groupware_server_email_segments[1] }}", 1);
+{% endfor %}
+INSERT INTO mailbox (username, password, name, maildir, domain) VALUES ("{{ groupware_server_account.email }}", "{CRYPT}{{ groupware_server_account.password|password_hash('bcrypt') }}", "{{ groupware_server_email_segments[0] }}", "{{ groupware_server_email_segments[1] }}/{{ groupware_server_email_segments[0] }}", "{{ groupware_server_email_segments[1] }}");
+{% endfor %}
+
+COMMIT;

@@ -1,0 +1,60 @@
+- name: Install packages for CalDAV/CardDAV server
+  apt:
+    name:
+      - radicale
+      - python3-pip
+      - cron
+      - acl
+    update_cache: true
+  become: true
+
+- name: Install packages for CalDAV/CardDAV server
+  pip:
+    name:
+      - passlib[bcrypt]==1.7.4
+    executable: pip3
+  become: true
+
+- name: Start CalDAV/CardDAV server on boot
+  service:
+    name: radicale
+    enabled: true
+  become: true
+
+- name: Manage weekly reload cron job for CalDAV/CardDAV server
+  cron:
+    job: /usr/bin/systemctl restart radicale
+    name: groupware_server_weekly_reload_dav
+    special_time: weekly
+    state: "{{ groupware_server_weekly_reload|ternary('present', 'absent') }}"
+  become: true
+
+- name: Include TLS certificate private key ACL management tasks
+  include_tasks: manage_tls_key_acl.yml
+  loop: "{{ groupware_server_tls_key_file.split('/')|reject('equalto', '') }}"
+  loop_control:
+    loop_var: groupware_server_tls_key_path_segment
+
+- name: Configure CalDAV/CardDAV server
+  template:
+    src: radicale-config.j2
+    dest: /etc/radicale/config
+    mode: 0644
+  become: true
+  notify: groupware_server_radicale_restart_handler
+
+- name: Configure CalDAV/CardDAV server logging
+  copy:
+    src: radicale-logging
+    dest: /etc/radicale/logging
+    mode: 0644
+  become: true
+  notify: groupware_server_radicale_restart_handler
+
+- name: Manage CalDAV/CardDAV users
+  template:
+    src: radicale-users.j2
+    dest: /etc/radicale/users
+    mode: 0640
+    group: radicale
+  become: true
